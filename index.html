@@ -1,0 +1,1255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Collage Maker</title>
+  <style>
+    :root {
+      --app-bg: #111;
+      --panel: #1f1f1f;
+      --panel-2: #2b2b2b;
+      --border: #424242;
+      --text: #f4f4f4;
+      --muted: #b9b9b9;
+      --accent: #63a4ff;
+      --control-bg: #181818;
+      --button-bg: #202020;
+      --button-hover-bg: #2a2a2a;
+      --button-hover-border: #5a5a5a;
+      --primary-bg: #19406f;
+      --primary-hover-bg: #215187;
+      --primary-border: #3f6ea8;
+      --status-bg: #181818;
+      --workspace-frame-bg: #0d0d0d;
+      --panel-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+      --workspace-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
+      --overlay-bg: rgba(15, 15, 15, 0.82);
+      --overlay-border: rgba(255, 255, 255, 0.14);
+      --drop: rgba(99, 164, 255, 0.38);
+      --move: rgba(255, 215, 0, 0.32);
+      --cell-outline: rgba(255, 255, 255, 0.12);
+      --cell-empty-text: rgba(255, 255, 255, 0.28);
+      color-scheme: dark light;
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --app-bg: #eceff3;
+        --panel: #ffffff;
+        --panel-2: #f4f6f8;
+        --border: #cfd7df;
+        --text: #1a222b;
+        --muted: #5e6a76;
+        --control-bg: #ffffff;
+        --button-bg: #eef2f6;
+        --button-hover-bg: #e1e7ee;
+        --button-hover-border: #b7c3cf;
+        --primary-bg: #2e6bb2;
+        --primary-hover-bg: #255b97;
+        --primary-border: #4f84c4;
+        --status-bg: #f7f9fb;
+        --workspace-frame-bg: #dfe5ea;
+        --panel-shadow: 0 10px 28px rgba(52, 72, 92, 0.12);
+        --workspace-shadow: 0 10px 26px rgba(52, 72, 92, 0.16);
+        --overlay-bg: rgba(255, 255, 255, 0.86);
+        --overlay-border: rgba(26, 34, 43, 0.14);
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--app-bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    body.dragging-image,
+    body.dragging-image * {
+      cursor: grabbing !important;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: minmax(320px, 420px) 1fr;
+      gap: 16px;
+      padding: 16px;
+      min-height: 100vh;
+    }
+
+    .sidebar,
+    .stage-panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: var(--panel-shadow);
+    }
+
+    .sidebar {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .stage-panel {
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 1.35rem;
+      line-height: 1.2;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 0.95rem;
+      line-height: 1.45;
+    }
+
+    .group {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .group-title {
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin: 0;
+    }
+
+    .grid-2,
+    .grid-3 {
+      display: grid;
+      gap: 10px;
+    }
+
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 0.92rem;
+    }
+
+    input[type="number"],
+    select,
+    button {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--control-bg);
+      color: var(--text);
+      padding: 10px 12px;
+      font: inherit;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+
+    .actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    button {
+      cursor: pointer;
+      transition: transform 0.08s ease, background 0.12s ease, border-color 0.12s ease;
+      background: var(--button-bg);
+    }
+
+    button:hover {
+      background: var(--button-hover-bg);
+      border-color: var(--button-hover-border);
+    }
+
+    button:active { transform: translateY(1px); }
+
+    .primary {
+      background: var(--primary-bg);
+      border-color: var(--primary-border);
+    }
+
+    .primary:hover { background: var(--primary-hover-bg); }
+
+    .quality-row,
+    .status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .quality-value,
+    .status-pill {
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .status-pill {
+      padding: 6px 10px;
+      background: var(--status-bg);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+    }
+
+    .workspace-wrap {
+      position: relative;
+      flex: 1;
+      min-height: 420px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: var(--workspace-frame-bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: auto;
+      padding: 12px;
+    }
+
+    #workspace {
+      position: relative;
+      flex: 0 0 auto;
+      box-shadow: var(--workspace-shadow);
+      user-select: none;
+    }
+
+    .cell {
+      position: absolute;
+      overflow: hidden;
+      box-shadow: inset 0 0 0 1px var(--cell-outline);
+    }
+
+    .cell::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .cell.empty::after {
+      content: "Drop image";
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--cell-empty-text);
+      font-size: 14px;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .image-layer {
+      position: absolute;
+      inset: 0;
+      cursor: grab;
+      z-index: 0;
+    }
+
+    .image-layer.dragging,
+    .drag-source .image-layer {
+      cursor: grabbing;
+    }
+
+    .cell img {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      max-width: none;
+      max-height: none;
+      pointer-events: none;
+      -webkit-user-drag: none;
+    }
+
+    .cell.drop-target::before {
+      box-shadow: inset 0 0 0 2px var(--accent), inset 0 0 0 9999px var(--drop);
+    }
+
+    .cell.move-target::before {
+      box-shadow: inset 0 0 0 2px gold, inset 0 0 0 9999px var(--move);
+    }
+
+    .cell-overlay {
+      position: absolute;
+      left: 8px;
+      right: 8px;
+      bottom: 8px;
+      padding: 8px 10px;
+      border-radius: 12px;
+      background: var(--overlay-bg);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--overlay-border);
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(8px);
+      transition: opacity 0.12s ease, transform 0.12s ease, visibility 0s linear 0.12s;
+      pointer-events: none;
+      z-index: 3;
+    }
+
+    .cell.has-image:hover .cell-overlay {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(0);
+      transition-delay: 0s;
+    }
+
+    .cell.has-image:hover .cell-overlay input[type="range"] {
+      pointer-events: auto;
+    }
+
+    .cell.has-image:hover .cell-overlay .overlay-action {
+      pointer-events: auto;
+    }
+
+    .cell.drag-source .cell-overlay,
+    .cell.drag-source:hover .cell-overlay,
+    .cell.move-target .cell-overlay,
+    .cell.move-target:hover .cell-overlay {
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(8px);
+      pointer-events: none;
+      transition-delay: 0s;
+    }
+
+    .overlay-top {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.86rem;
+    }
+
+    .overlay-top .scale-value {
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+      color: var(--muted);
+    }
+
+    .overlay-top input[type="range"] {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .overlay-action {
+      flex: 0 0 auto;
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      line-height: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    .overlay-action svg {
+      width: 16px;
+      height: 16px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .cell-overlay input[type="range"] {
+      pointer-events: none;
+      margin: 0;
+    }
+
+    .footer-note {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.45;
+    }
+
+    .hidden { display: none !important; }
+
+    @media (max-width: 1100px) {
+      .app {
+        grid-template-columns: 1fr;
+      }
+
+      .workspace-wrap {
+        min-height: 340px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div>
+        <h1>Collage Maker</h1>
+      </div>
+
+      <section class="group">
+        <p class="group-title">Layout</p>
+        <div class="grid-2">
+          <label>
+            Width (px)
+            <input id="outputWidth" type="number" min="1" step="1" value="3000" />
+          </label>
+          <label>
+            Height (px)
+            <input id="outputHeight" type="number" min="1" step="1" value="2000" />
+          </label>
+        </div>
+        <div class="grid-2">
+          <label>
+            Columns
+            <input id="cols" type="number" min="1" step="1" value="3" />
+          </label>
+          <label>
+            Rows
+            <input id="rows" type="number" min="1" step="1" value="3" />
+          </label>
+        </div>
+        <label>
+          Blank-cell background
+          <select id="backgroundColor">
+            <option value="black" selected>Black</option>
+            <option value="white">White</option>
+            <option value="gray">Gray</option>
+          </select>
+        </label>
+        <div class="actions">
+          <button id="applyLayout" class="primary">Apply</button>
+          <button id="clearAll">Clear Images</button>
+        </div>
+      </section>
+
+      <section class="group">
+        <p class="group-title">Export</p>
+        <label>
+          Format
+          <select id="exportFormat">
+            <option value="png" selected>PNG</option>
+            <option value="jpg">JPG</option>
+          </select>
+        </label>
+        <div id="jpegQualityWrap">
+          <div class="quality-row">
+            <label style="flex: 1;">
+              JPG quality
+              <input id="jpegQuality" type="range" min="0.10" max="1.00" step="0.01" value="0.92" />
+            </label>
+            <div id="jpegQualityValue" class="quality-value">0.92</div>
+          </div>
+        </div>
+        <button id="downloadBtn" class="primary">Download</button>
+      </section>
+    </aside>
+
+    <main class="stage-panel">
+      <div class="status-row">
+        <div id="status" class="status-pill">0 images loaded</div>
+        <div id="previewInfo" class="status-pill">Preview</div>
+      </div>
+      <div id="workspaceWrap" class="workspace-wrap">
+        <div id="workspace"></div>
+      </div>
+      <div class="footer-note">Editor grid lines are only for convenience and are not included in the exported image.</div>
+    </main>
+  </div>
+
+  <script>
+    (() => {
+      const BG_COLORS = {
+        black: '#000000',
+        white: '#ffffff',
+        gray: '#808080'
+      };
+
+      const MOVE_THRESHOLD_SCREEN_PX = 50;
+      let nextImageId = 1;
+
+      const state = {
+        outputWidth: 3000,
+        outputHeight: 2000,
+        rows: 3,
+        cols: 3,
+        backgroundColor: 'black',
+        exportFormat: 'png',
+        jpegQuality: 0.92,
+        previewScale: 1,
+        cells: [],
+        cellRects: [],
+        externalDropTarget: null,
+        drag: null,
+        renderQueued: false
+      };
+
+      const els = {
+        outputWidth: document.getElementById('outputWidth'),
+        outputHeight: document.getElementById('outputHeight'),
+        rows: document.getElementById('rows'),
+        cols: document.getElementById('cols'),
+        backgroundColor: document.getElementById('backgroundColor'),
+        applyLayout: document.getElementById('applyLayout'),
+        clearAll: document.getElementById('clearAll'),
+        exportFormat: document.getElementById('exportFormat'),
+        jpegQualityWrap: document.getElementById('jpegQualityWrap'),
+        jpegQuality: document.getElementById('jpegQuality'),
+        jpegQualityValue: document.getElementById('jpegQualityValue'),
+        downloadBtn: document.getElementById('downloadBtn'),
+        workspaceWrap: document.getElementById('workspaceWrap'),
+        workspace: document.getElementById('workspace'),
+        status: document.getElementById('status'),
+        previewInfo: document.getElementById('previewInfo')
+      };
+
+      function clamp(value, min, max) {
+        return Math.min(max, Math.max(min, value));
+      }
+
+      function safeInt(value, fallback, min, max) {
+        const n = Number.parseInt(value, 10);
+        if (!Number.isFinite(n)) return fallback;
+        return clamp(n, min, max);
+      }
+
+      function scheduleRender() {
+        if (state.renderQueued) return;
+        state.renderQueued = true;
+        requestAnimationFrame(() => {
+          state.renderQueued = false;
+          render();
+        });
+      }
+
+      function disposeImage(image) {
+        if (image && image.url) {
+          URL.revokeObjectURL(image.url);
+        }
+      }
+
+      function findLastMatchingIndex(items, predicate) {
+        for (let i = items.length - 1; i >= 0; i -= 1) {
+          if (predicate(items[i], i)) {
+            return i;
+          }
+        }
+
+        return -1;
+      }
+
+      function createImageGrid(rows, cols) {
+        return Array.from({ length: rows }, (_, rowIndex) => (
+          Array.from({ length: cols }, (_, colIndex) => {
+            const cellIndex = (rowIndex * cols) + colIndex;
+            return state.cells[cellIndex]?.image || null;
+          })
+        ));
+      }
+
+      function fillAvailableGridSlots(grid, images) {
+        let imageIndex = 0;
+
+        for (const row of grid) {
+          for (let colIndex = 0; colIndex < row.length && imageIndex < images.length; colIndex += 1) {
+            if (!row[colIndex]) {
+              row[colIndex] = images[imageIndex];
+              imageIndex += 1;
+            }
+          }
+        }
+
+        return images.slice(imageIndex);
+      }
+
+      function setCellLayout(newRows, newCols) {
+        const oldRows = state.rows;
+        const oldCols = state.cols;
+        const grid = createImageGrid(oldRows, oldCols);
+        let overflowImages = [];
+
+        if (newCols > oldCols) {
+          for (const row of grid) {
+            while (row.length < newCols) {
+              row.push(null);
+            }
+          }
+        }
+
+        if (newRows > oldRows) {
+          const currentCols = grid[0]?.length || newCols;
+          while (grid.length < newRows) {
+            grid.push(Array.from({ length: currentCols }, () => null));
+          }
+        }
+
+        if (newCols < oldCols) {
+          for (const row of grid) {
+            while (row.length > newCols) {
+              const removableIndex = findLastMatchingIndex(row, image => image == null);
+              if (removableIndex !== -1) {
+                row.splice(removableIndex, 1);
+              } else {
+                overflowImages.push(row.pop());
+              }
+            }
+          }
+
+          overflowImages = fillAvailableGridSlots(grid, overflowImages);
+        }
+
+        if (newRows < oldRows) {
+          while (grid.length > newRows) {
+            const removableRowIndex = findLastMatchingIndex(grid, row => row.every(image => image == null));
+            if (removableRowIndex !== -1) {
+              grid.splice(removableRowIndex, 1);
+            } else {
+              overflowImages.push(...grid.pop().filter(Boolean));
+            }
+          }
+
+          overflowImages = fillAvailableGridSlots(grid, overflowImages);
+        }
+
+        for (const image of overflowImages) {
+          disposeImage(image);
+        }
+
+        state.rows = newRows;
+        state.cols = newCols;
+        state.cells = grid.flat().map(image => ({ image }));
+      }
+
+      function recomputeCellRects() {
+        const rects = [];
+        let index = 0;
+
+        for (let row = 0; row < state.rows; row += 1) {
+          const y1 = Math.round((row * state.outputHeight) / state.rows);
+          const y2 = Math.round(((row + 1) * state.outputHeight) / state.rows);
+          for (let col = 0; col < state.cols; col += 1) {
+            const x1 = Math.round((col * state.outputWidth) / state.cols);
+            const x2 = Math.round(((col + 1) * state.outputWidth) / state.cols);
+            rects.push({
+              index,
+              row,
+              col,
+              x: x1,
+              y: y1,
+              width: x2 - x1,
+              height: y2 - y1
+            });
+            index += 1;
+          }
+        }
+
+        state.cellRects = rects;
+      }
+
+      function applyLayoutFromInputs() {
+        state.outputWidth = safeInt(els.outputWidth.value, state.outputWidth, 1, 20000);
+        state.outputHeight = safeInt(els.outputHeight.value, state.outputHeight, 1, 20000);
+        const newRows = safeInt(els.rows.value, state.rows, 1, 50);
+        const newCols = safeInt(els.cols.value, state.cols, 1, 50);
+        state.backgroundColor = els.backgroundColor.value;
+
+        els.outputWidth.value = String(state.outputWidth);
+        els.outputHeight.value = String(state.outputHeight);
+        els.rows.value = String(newRows);
+        els.cols.value = String(newCols);
+
+        setCellLayout(newRows, newCols);
+        recomputeCellRects();
+        scheduleRender();
+      }
+
+      function clearAllImages() {
+        for (const cell of state.cells) {
+          disposeImage(cell.image);
+          cell.image = null;
+        }
+        scheduleRender();
+      }
+
+      function clearCellImage(cellIndex) {
+        const cell = state.cells[cellIndex];
+        if (!cell || !cell.image) return;
+
+        disposeImage(cell.image);
+        cell.image = null;
+        scheduleRender();
+      }
+
+      function getLoadedCount() {
+        return state.cells.reduce((count, cell) => count + (cell.image ? 1 : 0), 0);
+      }
+
+      function updatePreviewScale() {
+        const availableWidth = Math.max(180, els.workspaceWrap.clientWidth - 24);
+        const availableHeight = Math.max(180, els.workspaceWrap.clientHeight - 24);
+        const scale = Math.min(availableWidth / state.outputWidth, availableHeight / state.outputHeight, 1);
+        state.previewScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+        els.workspace.style.width = `${Math.max(1, Math.round(state.outputWidth * state.previewScale))}px`;
+        els.workspace.style.height = `${Math.max(1, Math.round(state.outputHeight * state.previewScale))}px`;
+        els.workspace.style.background = BG_COLORS[state.backgroundColor] || BG_COLORS.black;
+
+        const isLightBackground = state.backgroundColor === 'white';
+        els.workspace.style.setProperty('--cell-outline', isLightBackground ? 'rgba(0, 0, 0, 0.28)' : 'rgba(255, 255, 255, 0.12)');
+        els.workspace.style.setProperty('--cell-empty-text', isLightBackground ? 'rgba(0, 0, 0, 0.48)' : 'rgba(255, 255, 255, 0.28)');
+      }
+
+      function getCellRect(index) {
+        return state.cellRects[index] || null;
+      }
+
+      function getCellIndexAtOutputPoint(x, y) {
+        if (x < 0 || y < 0 || x >= state.outputWidth || y >= state.outputHeight) {
+          return null;
+        }
+
+        for (const rect of state.cellRects) {
+          if (x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height) {
+            return rect.index;
+          }
+        }
+
+        return null;
+      }
+
+      function setExternalDropTarget(targetIndex) {
+        if (state.externalDropTarget === targetIndex) {
+          return targetIndex;
+        }
+
+        state.externalDropTarget = targetIndex;
+        scheduleRender();
+        return targetIndex;
+      }
+
+      function clientPointToOutputPoint(clientX, clientY) {
+        const bounds = els.workspace.getBoundingClientRect();
+        return {
+          x: (clientX - bounds.left) / state.previewScale,
+          y: (clientY - bounds.top) / state.previewScale
+        };
+      }
+
+      function getImageMetrics(image, rect) {
+        const imageAspect = image.naturalWidth / image.naturalHeight;
+        const cellAspect = rect.width / rect.height;
+
+        let baseWidth;
+        let baseHeight;
+
+        if (imageAspect > cellAspect) {
+          baseHeight = rect.height;
+          baseWidth = rect.height * imageAspect;
+        } else {
+          baseWidth = rect.width;
+          baseHeight = rect.width / imageAspect;
+        }
+
+        const displayWidth = baseWidth * image.scale;
+        const displayHeight = baseHeight * image.scale;
+        const maxPanX = Math.max(0, (displayWidth - rect.width) / 2);
+        const maxPanY = Math.max(0, (displayHeight - rect.height) / 2);
+        const allowPan = maxPanX > 0.000001 || maxPanY > 0.000001;
+        const offsetX = maxPanX > 0 ? image.panXNorm * maxPanX : 0;
+        const offsetY = maxPanY > 0 ? image.panYNorm * maxPanY : 0;
+
+        return {
+          displayWidth,
+          displayHeight,
+          maxPanX,
+          maxPanY,
+          offsetX,
+          offsetY,
+          allowPan
+        };
+      }
+
+      function applyImagePresentation(imageEl, scaleValueEl, image, rect) {
+        const metrics = getImageMetrics(image, rect);
+        imageEl.style.width = `${metrics.displayWidth * state.previewScale}px`;
+        imageEl.style.height = `${metrics.displayHeight * state.previewScale}px`;
+        imageEl.style.left = `${(rect.width / 2 + metrics.offsetX) * state.previewScale}px`;
+        imageEl.style.top = `${(rect.height / 2 + metrics.offsetY) * state.previewScale}px`;
+
+        if (scaleValueEl) {
+          scaleValueEl.textContent = `${image.scale.toFixed(2)}x`;
+        }
+      }
+
+      function createCellElement(cell, rect) {
+        const cellEl = document.createElement('div');
+        cellEl.className = 'cell';
+        if (!cell.image) cellEl.classList.add('empty');
+        if (cell.image) cellEl.classList.add('has-image');
+        if (state.externalDropTarget === rect.index) cellEl.classList.add('drop-target');
+        if (state.drag && state.drag.mode === 'move' && state.drag.targetIndex === rect.index && rect.index !== state.drag.sourceIndex) {
+          cellEl.classList.add('move-target');
+        }
+        if (state.drag && state.drag.sourceIndex === rect.index) {
+          cellEl.classList.add('drag-source');
+        }
+
+        cellEl.style.left = `${rect.x * state.previewScale}px`;
+        cellEl.style.top = `${rect.y * state.previewScale}px`;
+        cellEl.style.width = `${rect.width * state.previewScale}px`;
+        cellEl.style.height = `${rect.height * state.previewScale}px`;
+        cellEl.style.background = BG_COLORS[state.backgroundColor] || BG_COLORS.black;
+        cellEl.dataset.index = String(rect.index);
+
+        if (cell.image) {
+          const imageLayer = document.createElement('div');
+          imageLayer.className = 'image-layer';
+          imageLayer.dataset.index = String(rect.index);
+          if (state.drag && state.drag.sourceIndex === rect.index) {
+            imageLayer.classList.add('dragging');
+          }
+          imageLayer.addEventListener('mousedown', onImageMouseDown);
+
+          const img = document.createElement('img');
+          img.src = cell.image.url;
+          img.alt = cell.image.name || 'Image';
+          img.draggable = false;
+          applyImagePresentation(img, null, cell.image, rect);
+          imageLayer.appendChild(img);
+          cellEl.appendChild(imageLayer);
+
+          const overlay = document.createElement('div');
+          overlay.className = 'cell-overlay';
+          overlay.addEventListener('mousedown', event => event.stopPropagation());
+
+          const overlayTop = document.createElement('div');
+          overlayTop.className = 'overlay-top';
+
+          const scaleValue = document.createElement('div');
+          scaleValue.className = 'scale-value';
+          scaleValue.textContent = `${cell.image.scale.toFixed(2)}x`;
+
+          const removeButton = document.createElement('button');
+          removeButton.type = 'button';
+          removeButton.className = 'overlay-action';
+          removeButton.setAttribute('aria-label', 'Remove image');
+          removeButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 3h6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M6 7l1 13h10l1-13"/></svg>';
+          removeButton.addEventListener('mousedown', event => event.stopPropagation());
+          removeButton.addEventListener('click', event => {
+            event.stopPropagation();
+            clearCellImage(rect.index);
+          });
+
+          const slider = document.createElement('input');
+          slider.type = 'range';
+          slider.min = '1';
+          slider.max = '3';
+          slider.step = '0.01';
+          slider.value = cell.image.scale.toFixed(2);
+          slider.addEventListener('mousedown', event => event.stopPropagation());
+          slider.addEventListener('input', event => {
+            cell.image.scale = clamp(Number.parseFloat(event.target.value) || 1, 1, 3);
+            applyImagePresentation(img, scaleValue, cell.image, rect);
+          });
+
+          overlayTop.appendChild(removeButton);
+          overlayTop.appendChild(slider);
+          overlayTop.appendChild(scaleValue);
+          overlay.appendChild(overlayTop);
+          cellEl.appendChild(overlay);
+        }
+
+        return cellEl;
+      }
+
+      function render() {
+        updatePreviewScale();
+        els.workspace.innerHTML = '';
+
+        for (const rect of state.cellRects) {
+          const cell = state.cells[rect.index];
+          els.workspace.appendChild(createCellElement(cell, rect));
+        }
+
+        els.status.textContent = `${getLoadedCount()} image${getLoadedCount() === 1 ? '' : 's'} loaded`;
+        els.previewInfo.textContent = `Preview ${Math.round(state.outputWidth * state.previewScale)}×${Math.round(state.outputHeight * state.previewScale)} • Output ${state.outputWidth}×${state.outputHeight}`;
+      }
+
+      async function loadFileIntoCell(file, cellIndex) {
+        if (!file || !file.type.startsWith('image/')) return;
+        if (cellIndex == null || !state.cells[cellIndex]) return;
+
+        const objectUrl = URL.createObjectURL(file);
+        const img = new Image();
+
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = reject;
+          img.src = objectUrl;
+        }).catch(() => {
+          URL.revokeObjectURL(objectUrl);
+          throw new Error('Could not load image.');
+        });
+
+        disposeImage(state.cells[cellIndex].image);
+        state.cells[cellIndex].image = {
+          id: nextImageId += 1,
+          name: file.name,
+          url: objectUrl,
+          naturalWidth: img.naturalWidth,
+          naturalHeight: img.naturalHeight,
+          scale: 1,
+          panXNorm: 0,
+          panYNorm: 0
+        };
+
+        scheduleRender();
+      }
+
+      function onImageMouseDown(event) {
+        if (event.button !== 0) return;
+        const index = Number.parseInt(event.currentTarget.dataset.index, 10);
+        const cell = state.cells[index];
+        const rect = getCellRect(index);
+        if (!cell || !cell.image || !rect) return;
+
+        const metrics = getImageMetrics(cell.image, rect);
+        state.drag = {
+          sourceIndex: index,
+          sourceImageId: cell.image.id,
+          startClientX: event.clientX,
+          startClientY: event.clientY,
+          startPanX: metrics.offsetX,
+          startPanY: metrics.offsetY,
+          startPanXNorm: cell.image.panXNorm,
+          startPanYNorm: cell.image.panYNorm,
+          mode: 'pan',
+          targetIndex: null
+        };
+
+        document.addEventListener('mousemove', onGlobalMouseMove);
+        document.addEventListener('mouseup', onGlobalMouseUp);
+        document.body.classList.add('dragging-image');
+        event.preventDefault();
+        scheduleRender();
+      }
+
+      function onGlobalMouseMove(event) {
+        if (!state.drag) return;
+        const drag = state.drag;
+        const sourceCell = state.cells[drag.sourceIndex];
+        const rect = getCellRect(drag.sourceIndex);
+        if (!sourceCell || !sourceCell.image || !rect) return;
+
+        const dxScreen = event.clientX - drag.startClientX;
+        const dyScreen = event.clientY - drag.startClientY;
+        const dxOutput = dxScreen / state.previewScale;
+        const dyOutput = dyScreen / state.previewScale;
+        const metrics = getImageMetrics(sourceCell.image, rect);
+
+        const desiredPanX = drag.startPanX + dxOutput;
+        const desiredPanY = drag.startPanY + dyOutput;
+        const clampedPanX = clamp(desiredPanX, -metrics.maxPanX, metrics.maxPanX);
+        const clampedPanY = clamp(desiredPanY, -metrics.maxPanY, metrics.maxPanY);
+        const overflowScreenX = Math.abs(desiredPanX - clampedPanX) * state.previewScale;
+        const overflowScreenY = Math.abs(desiredPanY - clampedPanY) * state.previewScale;
+        const point = clientPointToOutputPoint(event.clientX, event.clientY);
+        const hoveredCellIndex = getCellIndexAtOutputPoint(point.x, point.y);
+        const shouldMove = Math.max(overflowScreenX, overflowScreenY) >= MOVE_THRESHOLD_SCREEN_PX
+          && hoveredCellIndex != null
+          && hoveredCellIndex !== drag.sourceIndex;
+
+        if (!shouldMove) {
+          drag.mode = 'pan';
+          drag.targetIndex = null;
+
+          if (metrics.maxPanX > 0) {
+            sourceCell.image.panXNorm = clampedPanX / metrics.maxPanX;
+          } else {
+            sourceCell.image.panXNorm = 0;
+          }
+
+          if (metrics.maxPanY > 0) {
+            sourceCell.image.panYNorm = clampedPanY / metrics.maxPanY;
+          } else {
+            sourceCell.image.panYNorm = 0;
+          }
+        }
+
+        if (shouldMove) {
+          drag.mode = 'move';
+          drag.targetIndex = hoveredCellIndex;
+        }
+
+        scheduleRender();
+      }
+
+      function onGlobalMouseUp() {
+        if (!state.drag) return;
+
+        const drag = state.drag;
+        if (drag.mode === 'move' && drag.targetIndex != null && drag.targetIndex !== drag.sourceIndex) {
+          const source = state.cells[drag.sourceIndex];
+          const target = state.cells[drag.targetIndex];
+
+          if (source.image && source.image.id === drag.sourceImageId) {
+            source.image.panXNorm = drag.startPanXNorm;
+            source.image.panYNorm = drag.startPanYNorm;
+          }
+
+          const temp = source.image;
+          source.image = target.image;
+          target.image = temp;
+        }
+
+        state.drag = null;
+        document.removeEventListener('mousemove', onGlobalMouseMove);
+        document.removeEventListener('mouseup', onGlobalMouseUp);
+        document.body.classList.remove('dragging-image');
+        scheduleRender();
+      }
+
+      function containsImageFiles(dataTransfer) {
+        if (!dataTransfer) return false;
+
+        const items = Array.from(dataTransfer.items || []);
+        if (items.some(item => item.kind === 'file' && (!item.type || item.type.startsWith('image/')))) {
+          return true;
+        }
+
+        const files = Array.from(dataTransfer.files || []);
+        if (files.some(file => file.type.startsWith('image/'))) {
+          return true;
+        }
+
+        return Array.from(dataTransfer.types || []).includes('Files');
+      }
+
+      function getFirstImageFile(dataTransfer) {
+        if (!dataTransfer) return null;
+
+        const files = Array.from(dataTransfer.files || []);
+        const directFile = files.find(file => file.type.startsWith('image/'));
+        if (directFile) {
+          return directFile;
+        }
+
+        const items = Array.from(dataTransfer.items || []);
+        for (const item of items) {
+          if (item.kind !== 'file') continue;
+          const file = item.getAsFile();
+          if (file && file.type.startsWith('image/')) {
+            return file;
+          }
+        }
+
+        return null;
+      }
+
+      function updateExternalDropTarget(event) {
+        if (!containsImageFiles(event.dataTransfer)) {
+          return setExternalDropTarget(null);
+        }
+
+        const point = clientPointToOutputPoint(event.clientX, event.clientY);
+        const targetIndex = getCellIndexAtOutputPoint(point.x, point.y);
+        return setExternalDropTarget(targetIndex);
+      }
+
+      function isEventWithinWorkspaceDropZone(event) {
+        return event.target instanceof Node && els.workspaceWrap.contains(event.target);
+      }
+
+      async function onWorkspaceDrop(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        const targetIndex = updateExternalDropTarget(event);
+        const file = getFirstImageFile(event.dataTransfer);
+        setExternalDropTarget(null);
+
+        if (!file || targetIndex == null) return;
+
+        try {
+          await loadFileIntoCell(file, targetIndex);
+        } catch (error) {
+          window.alert(error?.message || 'Failed to load image.');
+        }
+      }
+
+      function syncExportControls() {
+        state.exportFormat = els.exportFormat.value;
+        state.jpegQuality = clamp(Number.parseFloat(els.jpegQuality.value) || 0.92, 0.1, 1);
+        els.jpegQualityValue.textContent = state.jpegQuality.toFixed(2);
+        els.jpegQualityWrap.classList.toggle('hidden', state.exportFormat !== 'jpg');
+      }
+
+      function drawCellImage(ctx, image, rect) {
+        if (!image) return;
+        const metrics = getImageMetrics(image, rect);
+        const left = rect.x + (rect.width / 2) + metrics.offsetX - (metrics.displayWidth / 2);
+        const top = rect.y + (rect.height / 2) + metrics.offsetY - (metrics.displayHeight / 2);
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(rect.x, rect.y, rect.width, rect.height);
+        ctx.clip();
+        ctx.drawImage(image.domImage || image.cacheImage, left, top, metrics.displayWidth, metrics.displayHeight);
+        ctx.restore();
+      }
+
+      function ensureCanvasImageLoaded(image) {
+        if (image.cacheImage && image.cacheImage.complete) {
+          return Promise.resolve(image.cacheImage);
+        }
+
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => {
+            image.cacheImage = img;
+            resolve(img);
+          };
+          img.onerror = reject;
+          img.src = image.url;
+        });
+      }
+
+      async function exportCollage() {
+        const canvas = document.createElement('canvas');
+        canvas.width = state.outputWidth;
+        canvas.height = state.outputHeight;
+        const ctx = canvas.getContext('2d');
+
+        ctx.fillStyle = BG_COLORS[state.backgroundColor] || BG_COLORS.black;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const images = state.cells.map(cell => cell.image).filter(Boolean);
+        await Promise.all(images.map(ensureCanvasImageLoaded));
+
+        for (const rect of state.cellRects) {
+          const image = state.cells[rect.index].image;
+          if (image) {
+            drawCellImage(ctx, image, rect);
+          }
+        }
+
+        const mimeType = state.exportFormat === 'jpg' ? 'image/jpeg' : 'image/png';
+        const extension = state.exportFormat === 'jpg' ? 'jpg' : 'png';
+        const quality = state.exportFormat === 'jpg' ? state.jpegQuality : undefined;
+
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, mimeType, quality));
+        if (!blob) {
+          window.alert('Export failed.');
+          return;
+        }
+
+        const downloadUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = `collage-${state.outputWidth}x${state.outputHeight}.${extension}`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+      }
+
+      function wireEvents() {
+        els.applyLayout.addEventListener('click', applyLayoutFromInputs);
+        els.clearAll.addEventListener('click', clearAllImages);
+        els.backgroundColor.addEventListener('change', () => {
+          state.backgroundColor = els.backgroundColor.value;
+          scheduleRender();
+        });
+
+        els.exportFormat.addEventListener('change', syncExportControls);
+        els.jpegQuality.addEventListener('input', syncExportControls);
+        els.downloadBtn.addEventListener('click', async () => {
+          try {
+            syncExportControls();
+            await exportCollage();
+          } catch (error) {
+            console.error(error);
+            window.alert(error?.message || 'Export failed.');
+          }
+        });
+
+        const onGlobalFileDrag = event => {
+          if (!containsImageFiles(event.dataTransfer)) return;
+
+          event.preventDefault();
+
+          const isWorkspaceDrop = isEventWithinWorkspaceDropZone(event);
+          event.dataTransfer.dropEffect = isWorkspaceDrop ? 'copy' : 'none';
+
+          if (!isWorkspaceDrop && state.externalDropTarget != null) {
+            setExternalDropTarget(null);
+          }
+        };
+
+        const onGlobalFileDrop = event => {
+          if (!containsImageFiles(event.dataTransfer)) return;
+
+          event.preventDefault();
+
+          if (!isEventWithinWorkspaceDropZone(event) && state.externalDropTarget != null) {
+            setExternalDropTarget(null);
+          }
+        };
+
+        window.addEventListener('dragover', onGlobalFileDrag, true);
+        window.addEventListener('drop', onGlobalFileDrop, true);
+
+        els.workspaceWrap.addEventListener('dragover', event => {
+          if (!containsImageFiles(event.dataTransfer)) return;
+
+          event.preventDefault();
+          event.stopPropagation();
+          event.dataTransfer.dropEffect = 'copy';
+          updateExternalDropTarget(event);
+        });
+
+        els.workspaceWrap.addEventListener('drop', onWorkspaceDrop);
+
+        els.workspaceWrap.addEventListener('dragleave', event => {
+          const bounds = els.workspaceWrap.getBoundingClientRect();
+          const outside = event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom;
+          if (outside) {
+            setExternalDropTarget(null);
+          }
+        });
+
+        window.addEventListener('resize', scheduleRender);
+        new ResizeObserver(() => scheduleRender()).observe(els.workspaceWrap);
+      }
+
+      function init() {
+        setCellLayout(state.rows, state.cols);
+        recomputeCellRects();
+        syncExportControls();
+        wireEvents();
+        scheduleRender();
+      }
+
+      init();
+    })();
+  </script>
+</body>
+</html>
