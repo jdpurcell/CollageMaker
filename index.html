@@ -17,6 +17,9 @@
       --button-bg: #202020;
       --button-hover-bg: #2a2a2a;
       --button-hover-border: #5a5a5a;
+      --button-disabled-bg: #252525;
+      --button-disabled-border: #3a3a3a;
+      --button-disabled-text: #8f8f8f;
       --primary-bg: #19406f;
       --primary-hover-bg: #215187;
       --primary-border: #3f6ea8;
@@ -46,6 +49,9 @@
         --button-bg: #eef2f6;
         --button-hover-bg: #e1e7ee;
         --button-hover-border: #b7c3cf;
+        --button-disabled-bg: #edf1f4;
+        --button-disabled-border: #d3dbe3;
+        --button-disabled-text: #8893a0;
         --primary-bg: #2e6bb2;
         --primary-hover-bg: #255b97;
         --primary-border: #4f84c4;
@@ -225,6 +231,24 @@
     }
 
     button:active { transform: translateY(1px); }
+
+    button:disabled {
+      cursor: auto;
+      color: var(--button-disabled-text);
+      background: var(--button-disabled-bg);
+      border-color: var(--button-disabled-border);
+      transform: none;
+      opacity: 0.72;
+    }
+
+    button:disabled:hover {
+      background: var(--button-disabled-bg);
+      border-color: var(--button-disabled-border);
+    }
+
+    button:disabled:active {
+      transform: none;
+    }
 
     .primary {
       background: var(--primary-bg);
@@ -574,7 +598,8 @@
         hoverResizeHandle: null,
         resizeDrag: null,
         drag: null,
-        renderQueued: false
+        renderQueued: false,
+        appliedLayoutSettings: null
       };
 
       const els = {
@@ -610,6 +635,36 @@
       function createEqualTrackFractions(count) {
         const safeCount = Math.max(1, count);
         return Array.from({ length: safeCount }, () => 1 / safeCount);
+      }
+
+      function getLayoutSettingsFromInputs() {
+        return {
+          outputWidth: safeInt(els.outputWidth.value, state.outputWidth, 1, 20000),
+          outputHeight: safeInt(els.outputHeight.value, state.outputHeight, 1, 20000),
+          rows: safeInt(els.rows.value, state.rows, 1, 50),
+          cols: safeInt(els.cols.value, state.cols, 1, 50),
+          backgroundColor: els.backgroundColor.value,
+          variableSizingEnabled: els.variableSizing.checked
+        };
+      }
+
+      function areLayoutSettingsEqual(left, right) {
+        if (!left || !right) {
+          return false;
+        }
+
+        return left.outputWidth === right.outputWidth
+          && left.outputHeight === right.outputHeight
+          && left.rows === right.rows
+          && left.cols === right.cols
+          && left.backgroundColor === right.backgroundColor
+          && left.variableSizingEnabled === right.variableSizingEnabled;
+      }
+
+      function updateApplyButtonState() {
+        const currentSettings = getLayoutSettingsFromInputs();
+        const hasPendingChanges = !areLayoutSettingsEqual(currentSettings, state.appliedLayoutSettings);
+        els.applyLayout.disabled = !hasPendingChanges;
       }
 
       function normalizeTrackFractions(fractions, targetCount) {
@@ -1022,22 +1077,34 @@
       }
 
       function applyLayoutFromInputs() {
-        state.outputWidth = safeInt(els.outputWidth.value, state.outputWidth, 1, 20000);
-        state.outputHeight = safeInt(els.outputHeight.value, state.outputHeight, 1, 20000);
-        const newRows = safeInt(els.rows.value, state.rows, 1, 50);
-        const newCols = safeInt(els.cols.value, state.cols, 1, 50);
-        state.backgroundColor = els.backgroundColor.value;
-        state.variableSizingEnabled = els.variableSizing.checked;
+        const nextSettings = getLayoutSettingsFromInputs();
+
+        state.outputWidth = nextSettings.outputWidth;
+        state.outputHeight = nextSettings.outputHeight;
+        const newRows = nextSettings.rows;
+        const newCols = nextSettings.cols;
+        state.backgroundColor = nextSettings.backgroundColor;
+        state.variableSizingEnabled = nextSettings.variableSizingEnabled;
 
         els.outputWidth.value = String(state.outputWidth);
         els.outputHeight.value = String(state.outputHeight);
         els.rows.value = String(newRows);
         els.cols.value = String(newCols);
         els.variableSizing.checked = state.variableSizingEnabled;
+        els.backgroundColor.value = state.backgroundColor;
 
         setCellLayout(newRows, newCols);
         syncTrackFractions(newRows, newCols, !state.variableSizingEnabled);
         recomputeCellRects();
+        state.appliedLayoutSettings = {
+          outputWidth: state.outputWidth,
+          outputHeight: state.outputHeight,
+          rows: state.rows,
+          cols: state.cols,
+          backgroundColor: state.backgroundColor,
+          variableSizingEnabled: state.variableSizingEnabled
+        };
+        updateApplyButtonState();
         scheduleRender();
       }
 
@@ -1590,10 +1657,22 @@
       function wireEvents() {
         els.applyLayout.addEventListener('click', applyLayoutFromInputs);
         els.clearAll.addEventListener('click', clearAllImages);
-        els.backgroundColor.addEventListener('change', () => {
-          state.backgroundColor = els.backgroundColor.value;
-          scheduleRender();
-        });
+
+        const layoutInputElements = [
+          els.outputWidth,
+          els.outputHeight,
+          els.rows,
+          els.cols
+        ];
+
+        for (const input of layoutInputElements) {
+          input.addEventListener('input', updateApplyButtonState);
+          input.addEventListener('change', updateApplyButtonState);
+        }
+
+        els.backgroundColor.addEventListener('change', updateApplyButtonState);
+        els.variableSizing.addEventListener('change', updateApplyButtonState);
+
         els.exportFormat.addEventListener('change', syncExportControls);
         els.jpegQuality.addEventListener('input', syncExportControls);
         els.downloadBtn.addEventListener('click', async () => {
@@ -1663,8 +1742,10 @@
         setCellLayout(state.rows, state.cols);
         syncTrackFractions(state.rows, state.cols);
         recomputeCellRects();
+        state.appliedLayoutSettings = getLayoutSettingsFromInputs();
         syncExportControls();
         wireEvents();
+        updateApplyButtonState();
         scheduleRender();
       }
 
