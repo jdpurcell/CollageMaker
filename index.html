@@ -110,6 +110,34 @@
       line-height: 1.2;
     }
 
+    .title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .repo-link {
+      flex: 0 0 auto;
+      font-size: 0.82rem;
+      text-decoration: none;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+      background: color-mix(in srgb, var(--text) 8%, transparent);
+      transition: background-color 0.15s ease, transform 0.1s ease, border-color 0.12s ease;
+    }
+
+    .repo-link:hover {
+      background: color-mix(in srgb, var(--text) 14%, transparent);
+      border-color: color-mix(in srgb, var(--border) 100%, var(--text) 12%);
+    }
+
+    .repo-link:active {
+      transform: translateY(1px);
+    }
+
     .muted {
       color: var(--muted);
       font-size: 0.95rem;
@@ -424,13 +452,20 @@
         min-height: 340px;
       }
     }
+
+    @media (max-width: 460px) {
+      .title-row {
+        align-items: flex-start;
+      }
+    }
   </style>
 </head>
 <body>
   <div class="app">
     <aside class="sidebar">
-      <div>
+      <div class="title-row">
         <h1>Collage Maker</h1>
+        <a class="repo-link" href="https://github.com/jdpurcell/CollageMaker" target="_blank" rel="noopener noreferrer">GitHub Repo ↗</a>
       </div>
 
       <section class="group">
