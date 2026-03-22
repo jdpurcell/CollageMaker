@@ -143,6 +143,18 @@
     .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
+    .checkbox-row {
+      flex-direction: row;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .checkbox-row input[type="checkbox"] {
+      width: auto;
+      margin: 0;
+      accent-color: var(--accent);
+    }
+
     label {
       display: flex;
       flex-direction: column;
@@ -237,6 +249,16 @@
       user-select: none;
     }
 
+    #workspace.resize-col,
+    #workspace.resize-col * {
+      cursor: col-resize !important;
+    }
+
+    #workspace.resize-row,
+    #workspace.resize-row * {
+      cursor: row-resize !important;
+    }
+
     .cell {
       position: absolute;
       overflow: hidden;
@@ -328,6 +350,8 @@
 
     .cell.drag-source .cell-overlay,
     .cell.drag-source:hover .cell-overlay,
+    #workspace.resize-active .cell-overlay,
+    #workspace.resize-active .cell:hover .cell-overlay,
     .cell.move-target .cell-overlay,
     .cell.move-target:hover .cell-overlay {
       opacity: 0;
@@ -439,6 +463,10 @@
             <option value="gray">Gray</option>
           </select>
         </label>
+        <label class="checkbox-row">
+          <input id="variableSizing" type="checkbox" />
+          Variable column/row sizing
+        </label>
         <div class="actions">
           <button id="applyLayout" class="primary">Apply</button>
           <button id="clearAll">Clear Images</button>
@@ -488,6 +516,9 @@
       };
 
       const MOVE_THRESHOLD_SCREEN_PX = 50;
+      const RESIZE_HANDLE_SCREEN_PX = 8;
+      const MIN_TRACK_SIZE_AUTO_RATIO = 0.5;
+      const TRACK_BOUNDARY_EPSILON = 0.000001;
       let nextImageId = 1;
 
       const state = {
@@ -495,13 +526,18 @@
         outputHeight: 2000,
         rows: 3,
         cols: 3,
+        rowFractions: Array.from({ length: 3 }, () => 1 / 3),
+        colFractions: Array.from({ length: 3 }, () => 1 / 3),
         backgroundColor: 'black',
+        variableSizingEnabled: false,
         exportFormat: 'png',
         jpegQuality: 0.92,
         previewScale: 1,
         cells: [],
         cellRects: [],
         externalDropTarget: null,
+        hoverResizeHandle: null,
+        resizeDrag: null,
         drag: null,
         renderQueued: false
       };
@@ -512,6 +548,7 @@
         rows: document.getElementById('rows'),
         cols: document.getElementById('cols'),
         backgroundColor: document.getElementById('backgroundColor'),
+        variableSizing: document.getElementById('variableSizing'),
         applyLayout: document.getElementById('applyLayout'),
         clearAll: document.getElementById('clearAll'),
         exportFormat: document.getElementById('exportFormat'),
@@ -533,6 +570,285 @@
         const n = Number.parseInt(value, 10);
         if (!Number.isFinite(n)) return fallback;
         return clamp(n, min, max);
+      }
+
+      function createEqualTrackFractions(count) {
+        const safeCount = Math.max(1, count);
+        return Array.from({ length: safeCount }, () => 1 / safeCount);
+      }
+
+      function normalizeTrackFractions(fractions, targetCount) {
+        const count = Math.max(1, targetCount || fractions?.length || 1);
+        const sanitized = [];
+
+        for (let index = 0; index < count; index += 1) {
+          const value = Number(fractions?.[index]);
+          sanitized.push(Number.isFinite(value) && value > 0 ? value : 0);
+        }
+
+        const total = sanitized.reduce((sum, value) => sum + value, 0);
+        if (total <= 0) {
+          return createEqualTrackFractions(count);
+        }
+
+        return sanitized.map(value => value / total);
+      }
+
+      function getTrackMinFraction(count) {
+        return MIN_TRACK_SIZE_AUTO_RATIO / Math.max(1, count);
+      }
+
+      function normalizeTrackFractionsWithMinimum(fractions, targetCount) {
+        const count = Math.max(1, targetCount || fractions?.length || 1);
+        const minFraction = getTrackMinFraction(count);
+        const normalized = normalizeTrackFractions(fractions, count);
+        const adjusted = normalized.slice();
+        let deficit = 0;
+        let available = 0;
+
+        for (let index = 0; index < adjusted.length; index += 1) {
+          if (adjusted[index] < minFraction) {
+            deficit += minFraction - adjusted[index];
+            adjusted[index] = minFraction;
+          } else {
+            available += adjusted[index] - minFraction;
+          }
+        }
+
+        if (deficit <= TRACK_BOUNDARY_EPSILON) {
+          return normalized;
+        }
+
+        if (available <= TRACK_BOUNDARY_EPSILON) {
+          return createEqualTrackFractions(count);
+        }
+
+        for (let index = 0; index < adjusted.length; index += 1) {
+          const excess = adjusted[index] - minFraction;
+          if (excess <= 0) {
+            continue;
+          }
+
+          adjusted[index] -= deficit * (excess / available);
+        }
+
+        return normalizeTrackFractions(adjusted, count);
+      }
+
+      function getTrackBoundariesFromFractions(fractions) {
+        const normalized = normalizeTrackFractions(fractions);
+        const boundaries = [];
+        let position = 0;
+
+        for (let index = 0; index < normalized.length - 1; index += 1) {
+          position += normalized[index];
+          boundaries.push(position);
+        }
+
+        return boundaries;
+      }
+
+      function createTrackFractionsFromBoundaries(boundaries, count) {
+        const fractions = [];
+        let previous = 0;
+        const sorted = boundaries.slice().sort((left, right) => left - right);
+
+        for (const boundary of sorted) {
+          fractions.push(boundary - previous);
+          previous = boundary;
+        }
+
+        fractions.push(1 - previous);
+        return normalizeTrackFractions(fractions, count);
+      }
+
+      function resizeTrackFractions(fractions, newCount, resetToEqual = false) {
+        if (resetToEqual) {
+          return createEqualTrackFractions(newCount);
+        }
+
+        const normalized = normalizeTrackFractions(fractions, fractions?.length || newCount);
+        const oldCount = normalized.length;
+
+        if (oldCount === newCount) {
+          return normalizeTrackFractionsWithMinimum(normalized, newCount);
+        }
+
+        if (newCount < oldCount) {
+          return normalizeTrackFractionsWithMinimum(normalized.slice(0, newCount), newCount);
+        }
+
+        const retainedShare = oldCount / newCount;
+        const newTrackShare = 1 / newCount;
+        const expanded = normalized.map(value => value * retainedShare);
+
+        for (let index = oldCount; index < newCount; index += 1) {
+          expanded.push(newTrackShare);
+        }
+
+        return normalizeTrackFractionsWithMinimum(expanded, newCount);
+      }
+
+      function syncTrackFractions(newRows, newCols, resetToEqual = false) {
+        state.rowFractions = resizeTrackFractions(state.rowFractions, newRows, resetToEqual);
+        state.colFractions = resizeTrackFractions(state.colFractions, newCols, resetToEqual);
+      }
+
+      function getTrackFractions(axis) {
+        return axis === 'row' ? state.rowFractions : state.colFractions;
+      }
+
+      function setTrackFractions(axis, fractions) {
+        if (axis === 'row') {
+          state.rowFractions = normalizeTrackFractionsWithMinimum(fractions, state.rows);
+          return;
+        }
+
+        state.colFractions = normalizeTrackFractionsWithMinimum(fractions, state.cols);
+      }
+
+      function getTrackEdges(axis) {
+        const totalSize = axis === 'row' ? state.outputHeight : state.outputWidth;
+        const fractions = getTrackFractions(axis);
+        const normalized = normalizeTrackFractions(fractions, fractions.length);
+        const edges = [0];
+        let position = 0;
+
+        for (let index = 0; index < normalized.length - 1; index += 1) {
+          position += normalized[index];
+          edges.push(Math.round(position * totalSize));
+        }
+
+        edges.push(totalSize);
+        return edges;
+      }
+
+      function getTrackMinSize(axis) {
+        const totalSize = axis === 'row' ? state.outputHeight : state.outputWidth;
+        const trackCount = axis === 'row' ? state.rows : state.cols;
+        return (totalSize / trackCount) * MIN_TRACK_SIZE_AUTO_RATIO;
+      }
+
+      function sameResizeHandle(left, right) {
+        if (left === right) return true;
+        if (!left || !right) return false;
+        return left.axis === right.axis && left.dividerIndex === right.dividerIndex;
+      }
+
+      function updateWorkspaceCursor() {
+        els.workspace.classList.remove('resize-row', 'resize-col', 'resize-active');
+
+        if (state.drag) {
+          return;
+        }
+
+        if (state.resizeDrag) {
+          els.workspace.classList.add('resize-active');
+        }
+
+        const handle = state.resizeDrag || state.hoverResizeHandle;
+        if (!state.variableSizingEnabled || !handle) {
+          return;
+        }
+
+        els.workspace.classList.add(handle.axis === 'row' ? 'resize-row' : 'resize-col');
+      }
+
+      function setHoverResizeHandle(handle) {
+        if (sameResizeHandle(state.hoverResizeHandle, handle)) {
+          return;
+        }
+
+        state.hoverResizeHandle = handle;
+        updateWorkspaceCursor();
+      }
+
+      function getResizeHandleAtOutputPoint(x, y) {
+        if (!state.variableSizingEnabled || state.drag || state.resizeDrag) {
+          return null;
+        }
+
+        if (x < 0 || y < 0 || x > state.outputWidth || y > state.outputHeight) {
+          return null;
+        }
+
+        const threshold = RESIZE_HANDLE_SCREEN_PX / state.previewScale;
+        const rowEdges = getTrackEdges('row');
+        const colEdges = getTrackEdges('col');
+
+        for (let edgeIndex = 1; edgeIndex < rowEdges.length - 1; edgeIndex += 1) {
+          if (Math.abs(y - rowEdges[edgeIndex]) <= threshold) {
+            return {
+              axis: 'row',
+              dividerIndex: edgeIndex - 1
+            };
+          }
+        }
+
+        for (let edgeIndex = 1; edgeIndex < colEdges.length - 1; edgeIndex += 1) {
+          if (Math.abs(x - colEdges[edgeIndex]) <= threshold) {
+            return {
+              axis: 'col',
+              dividerIndex: edgeIndex - 1
+            };
+          }
+        }
+
+        return null;
+      }
+
+      function applyResizeDrag(event) {
+        if (!state.resizeDrag) {
+          return;
+        }
+
+        const { axis, dividerIndex, startClientX, startClientY, startFractions } = state.resizeDrag;
+        const totalSize = axis === 'row' ? state.outputHeight : state.outputWidth;
+        const edges = [0];
+        let position = 0;
+
+        for (let index = 0; index < startFractions.length - 1; index += 1) {
+          position += startFractions[index];
+          edges.push(position * totalSize);
+        }
+
+        edges.push(totalSize);
+
+        const boundaryIndex = dividerIndex + 1;
+        const previousEdge = edges[boundaryIndex - 1];
+        const startBoundary = edges[boundaryIndex];
+        const nextEdge = edges[boundaryIndex + 1];
+        const minTrackSize = getTrackMinSize(axis);
+        const delta = axis === 'row'
+          ? (event.clientY - startClientY) / state.previewScale
+          : (event.clientX - startClientX) / state.previewScale;
+        const boundary = clamp(startBoundary + delta, previousEdge + minTrackSize, nextEdge - minTrackSize);
+        const nextFractions = startFractions.slice();
+
+        nextFractions[dividerIndex] = (boundary - previousEdge) / totalSize;
+        nextFractions[dividerIndex + 1] = (nextEdge - boundary) / totalSize;
+
+        setTrackFractions(axis, nextFractions);
+        recomputeCellRects();
+        scheduleRender();
+      }
+
+      function endResizeDrag(event) {
+        if (!state.resizeDrag) {
+          return;
+        }
+
+        state.resizeDrag = null;
+        document.removeEventListener('mousemove', onResizeMouseMove);
+        document.removeEventListener('mouseup', onResizeMouseUp);
+
+        if (!event) {
+          setHoverResizeHandle(null);
+          return;
+        }
+
+        const point = clientPointToOutputPoint(event.clientX, event.clientY);
+        setHoverResizeHandle(getResizeHandleAtOutputPoint(point.x, point.y));
       }
 
       function scheduleRender() {
@@ -644,14 +960,16 @@
 
       function recomputeCellRects() {
         const rects = [];
+        const rowEdges = getTrackEdges('row');
+        const colEdges = getTrackEdges('col');
         let index = 0;
 
         for (let row = 0; row < state.rows; row += 1) {
-          const y1 = Math.round((row * state.outputHeight) / state.rows);
-          const y2 = Math.round(((row + 1) * state.outputHeight) / state.rows);
+          const y1 = rowEdges[row];
+          const y2 = rowEdges[row + 1];
           for (let col = 0; col < state.cols; col += 1) {
-            const x1 = Math.round((col * state.outputWidth) / state.cols);
-            const x2 = Math.round(((col + 1) * state.outputWidth) / state.cols);
+            const x1 = colEdges[col];
+            const x2 = colEdges[col + 1];
             rects.push({
               index,
               row,
@@ -674,13 +992,16 @@
         const newRows = safeInt(els.rows.value, state.rows, 1, 50);
         const newCols = safeInt(els.cols.value, state.cols, 1, 50);
         state.backgroundColor = els.backgroundColor.value;
+        state.variableSizingEnabled = els.variableSizing.checked;
 
         els.outputWidth.value = String(state.outputWidth);
         els.outputHeight.value = String(state.outputHeight);
         els.rows.value = String(newRows);
         els.cols.value = String(newCols);
+        els.variableSizing.checked = state.variableSizingEnabled;
 
         setCellLayout(newRows, newCols);
+        syncTrackFractions(newRows, newCols, !state.variableSizingEnabled);
         recomputeCellRects();
         scheduleRender();
       }
@@ -894,6 +1215,7 @@
 
         els.status.textContent = `${getLoadedCount()} image${getLoadedCount() === 1 ? '' : 's'} loaded`;
         els.previewInfo.textContent = `Preview ${Math.round(state.outputWidth * state.previewScale)}×${Math.round(state.outputHeight * state.previewScale)} • Output ${state.outputWidth}×${state.outputHeight}`;
+        updateWorkspaceCursor();
       }
 
       async function loadFileIntoCell(file, cellIndex) {
@@ -1027,7 +1349,66 @@
         document.removeEventListener('mousemove', onGlobalMouseMove);
         document.removeEventListener('mouseup', onGlobalMouseUp);
         document.body.classList.remove('dragging-image');
+        updateWorkspaceCursor();
         scheduleRender();
+      }
+
+      function onResizeMouseMove(event) {
+        if (!state.resizeDrag) {
+          return;
+        }
+
+        applyResizeDrag(event);
+        updateWorkspaceCursor();
+      }
+
+      function onResizeMouseUp(event) {
+        endResizeDrag(event);
+        updateWorkspaceCursor();
+      }
+
+      function onWorkspaceMouseMove(event) {
+        if (state.drag || state.resizeDrag) {
+          updateWorkspaceCursor();
+          return;
+        }
+
+        const point = clientPointToOutputPoint(event.clientX, event.clientY);
+        setHoverResizeHandle(getResizeHandleAtOutputPoint(point.x, point.y));
+      }
+
+      function onWorkspaceMouseLeave() {
+        if (state.resizeDrag) {
+          return;
+        }
+
+        setHoverResizeHandle(null);
+      }
+
+      function onWorkspaceMouseDown(event) {
+        if (event.button !== 0 || state.drag || state.resizeDrag) {
+          return;
+        }
+
+        const point = clientPointToOutputPoint(event.clientX, event.clientY);
+        const handle = getResizeHandleAtOutputPoint(point.x, point.y);
+        if (!handle) {
+          return;
+        }
+
+        state.resizeDrag = {
+          axis: handle.axis,
+          dividerIndex: handle.dividerIndex,
+          startClientX: event.clientX,
+          startClientY: event.clientY,
+          startFractions: getTrackFractions(handle.axis).slice()
+        };
+        setHoverResizeHandle(handle);
+        document.addEventListener('mousemove', onResizeMouseMove);
+        document.addEventListener('mouseup', onResizeMouseUp);
+        updateWorkspaceCursor();
+        event.preventDefault();
+        event.stopPropagation();
       }
 
       function containsImageFiles(dataTransfer) {
@@ -1178,7 +1559,6 @@
           state.backgroundColor = els.backgroundColor.value;
           scheduleRender();
         });
-
         els.exportFormat.addEventListener('change', syncExportControls);
         els.jpegQuality.addEventListener('input', syncExportControls);
         els.downloadBtn.addEventListener('click', async () => {
@@ -1227,6 +1607,9 @@
         });
 
         els.workspaceWrap.addEventListener('drop', onWorkspaceDrop);
+        els.workspace.addEventListener('mousemove', onWorkspaceMouseMove);
+        els.workspace.addEventListener('mouseleave', onWorkspaceMouseLeave);
+        els.workspace.addEventListener('mousedown', onWorkspaceMouseDown, true);
 
         els.workspaceWrap.addEventListener('dragleave', event => {
           const bounds = els.workspaceWrap.getBoundingClientRect();
@@ -1241,7 +1624,9 @@
       }
 
       function init() {
+        els.variableSizing.checked = state.variableSizingEnabled;
         setCellLayout(state.rows, state.cols);
+        syncTrackFractions(state.rows, state.cols);
         recomputeCellRects();
         syncExportControls();
         wireEvents();
